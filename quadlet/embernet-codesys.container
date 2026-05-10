@@ -1,0 +1,83 @@
+# Embernet CODESYS Control — Podman Quadlet unit (systemd-managed)
+#
+# Install path: /etc/containers/systemd/embernet-codesys.container
+#
+# Quadlet generates a systemd .service unit at boot. Manage with:
+#   systemctl daemon-reload
+#   systemctl restart embernet-codesys.service
+#   systemctl status  embernet-codesys.service
+#   journalctl -u     embernet-codesys.service -f
+#
+# CodeSys runs PLC IEC 61131-3 logic with soft-real-time scheduling
+# expectations. We use --network host so the gateway port (1217), OPC-UA
+# (4840), and web visualization (8080) are reachable on the Pi's WG mesh
+# IP and LAN IP without NAT — same model as K3s agent. The runtime
+# stays in 30-minute demo cycles until a CodeMeter license is added.
+
+[Unit]
+Description=Embernet CODESYS Control for Linux ARM64 SL
+Documentation=https://content.helpme-codesys.com/
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/embernet-ai/codesys-linux-arm-64:latest
+ContainerName=embernet-codesys
+HostName=embernet-codesys
+
+# Host network: gateway / OPC-UA / web vis ports bind directly on the Pi's
+# IPs. Operators connect their CODESYS IDE to <pi-ip>:1217 (LAN side) or
+# <wg-ip>:1217 (mesh side).
+Network=host
+
+# Persistent runtime state across container restarts/rebuilds:
+#   /etc/codesyscontrol         - operator-tunable CODESYSControl_User.cfg
+#   /var/opt/codesys            - runtime state, license cache, project bytecode
+Volume=embernet-codesys-config.volume:/etc/codesyscontrol:Z
+Volume=embernet-codesys-data.volume:/var/opt/codesys:Z
+
+# Real-time scheduling needs LimitRTPRIO and LimitMEMLOCK — see [Service]
+# section below. Don't add CAP_SYS_NICE explicitly; --privileged below
+# already grants everything.
+
+# CODESYS runtime needs raw network access for fieldbus drivers and ability
+# to set scheduler priorities. --privileged is the simplest way to grant
+# both; tighten to specific caps (CAP_SYS_NICE, CAP_NET_ADMIN, CAP_NET_RAW,
+# CAP_IPC_LOCK) if security review later requires it.
+PodmanArgs=--privileged
+
+# Mask /dev/console + host TTYs (defense in depth — same rule we apply to
+# the ForgeNET controller). Prevents the container from ever spawning a
+# getty on the Pi's physical screen even if a future image change adds an
+# init system that does so.
+Mask=/dev/console
+Mask=/dev/tty0
+Mask=/dev/tty1
+
+# Resource limits — sized for a Pi 4/5 co-tenanting Ignition Edge, K3s
+# agent, and the ForgeNET controller. CODESYS Control SL is light at
+# rest (~150 MB resident) but spikes during program build/download. CPU
+# capped at 1.0 core to leave headroom; bump via drop-in if running
+# heavy multi-task SoftMotion projects.
+Memory=384M
+
+LogDriver=journald
+
+[Service]
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=120
+
+# Resource limits (systemd side)
+CPUQuota=100%
+TasksMax=1024
+
+# Real-time scheduling — CODESYS expects to run scan-cycle tasks at high
+# priority for predictable cycle timing. LimitRTPRIO=99 lets the runtime
+# request real-time policy via SCHED_FIFO; LimitMEMLOCK=infinity lets it
+# mlock its working set so the kernel can't page it out mid-cycle.
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target default.target

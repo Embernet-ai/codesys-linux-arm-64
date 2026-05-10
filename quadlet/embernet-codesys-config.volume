@@ -1,0 +1,14 @@
+# Embernet CODESYS — persistent config volume (CODESYSControl_User.cfg etc.)
+#
+# Install path: /etc/containers/systemd/embernet-codesys-config.volume
+
+[Unit]
+Description=Embernet CODESYS persistent config
+Documentation=https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Volume]
+VolumeName=embernet-codesys-config
+Label=io.embernet.volume=codesys-config
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,107 @@
+name: Build CodeSys Container
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: embernet-ai/codesys-linux-arm-64
+      CODESYS_VERSION: 4.20.0.0
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch — for arm64 cross-build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman jq
+
+      # On push events to main/develop we build with the real ghcr tag so the
+      # multi-arch manifest list can be pushed verbatim. On PRs we build with
+      # a localhost tag and skip the push.
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "image=localhost/embernet-ai/codesys-linux-arm-64:test" >> "$GITHUB_OUTPUT"
+            echo "push=false"                                            >> "$GITHUB_OUTPUT"
+          else
+            BRANCH="${{ github.ref_name }}"
+            echo "image=${REGISTRY}/${IMAGE_NAME}:${BRANCH}"             >> "$GITHUB_OUTPUT"
+            echo "push=true"                                             >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to ghcr.io
+        if: steps.tag.outputs.push == 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | podman login "${REGISTRY}" -u "${{ github.actor }}" --password-stdin
+
+      - name: Build arm64 image
+        run: |
+          podman build \
+            --platform linux/arm64 \
+            --build-arg CODESYS_VERSION="${CODESYS_VERSION}" \
+            -t "${{ steps.tag.outputs.image }}" \
+            -f Containerfile .
+
+      - name: Smoke test (arm64)
+        run: |
+          podman run --rm \
+            --entrypoint /bin/sh \
+            "${{ steps.tag.outputs.image }}" \
+            -c 'set -e; \
+                test -x /etc/init.d/codesyscontrol; \
+                test -d /opt/codesys; \
+                test -d /etc/codesyscontrol; \
+                echo "codesys layout OK"; \
+                /etc/init.d/codesyscontrol start || true; \
+                sleep 2; \
+                pgrep -af codesyscontrol || true; \
+                /etc/init.d/codesyscontrol stop || true'
+
+      - name: Push image
+        if: steps.tag.outputs.push == 'true'
+        run: |
+          podman push "${{ steps.tag.outputs.image }}" \
+            "docker://${{ steps.tag.outputs.image }}"
+
+      # On main pushes, also publish :latest and :${CODESYS_VERSION} so
+      # appliances can pull a stable rolling reference and a pinned one.
+      - name: Tag and push :latest + version (main only)
+        if: steps.tag.outputs.push == 'true' && github.ref_name == 'main'
+        run: |
+          for ALIAS in latest "${CODESYS_VERSION}"; do
+            podman tag "${{ steps.tag.outputs.image }}" \
+              "${REGISTRY}/${IMAGE_NAME}:${ALIAS}"
+            podman push "${REGISTRY}/${IMAGE_NAME}:${ALIAS}" \
+              "docker://${REGISTRY}/${IMAGE_NAME}:${ALIAS}"
+          done
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.tag.outputs.push }}" = "true" ]; then
+            echo "Pushed: ${{ steps.tag.outputs.image }}"
+            if [ "${{ github.ref_name }}" = "main" ]; then
+              echo "Pushed: ${REGISTRY}/${IMAGE_NAME}:latest"
+              echo "Pushed: ${REGISTRY}/${IMAGE_NAME}:${CODESYS_VERSION}"
+            fi
+          else
+            echo "Built and smoke-tested locally; no push (PR build)"
+          fi

@@ -1,0 +1,15 @@
+# Embernet CODESYS — persistent runtime data volume (project bytecode,
+# license cache, scan-cycle state)
+#
+# Install path: /etc/containers/systemd/embernet-codesys-data.volume
+
+[Unit]
+Description=Embernet CODESYS persistent runtime data
+Documentation=https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html
+
+[Volume]
+VolumeName=embernet-codesys-data
+Label=io.embernet.volume=codesys-data
+
+[Install]
+WantedBy=multi-user.target
