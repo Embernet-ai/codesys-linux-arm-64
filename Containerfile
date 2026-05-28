@@ -58,24 +58,42 @@ ADD https://github.com/Embernet-ai/codesys-linux-arm-64/releases/download/v${COD
 # Unzip the .package, then dpkg-install ONLY the .deb. The other contents
 # (Devices/, Help/, Html/, Libraries/) are CODESYS IDE-side bait — only the
 # Windows-side CODESYS Installer GUI uses them. We don't.
+#
+# Hard post-install assertions follow the dpkg call. dpkg --force-depends
+# masks the codemeter dep but does NOT mask other postinst failures.
+# If postinst aborted before registering CmpRetain in the user component
+# list, CmpApp safe-modes at runtime on the RetainUpdate import (this
+# is the failure mode that took universaltester004's cp02 down for 9
+# days — see Embernet-ai/Codesys-AMD-64-x86 PR #1). Fail the IMAGE
+# BUILD here instead of producing a "looks fine" image that safe-modes
+# in prod. Paths verified by extracting the actual .deb (postinst +
+# /etc/init.d/codesyscontrol:17,20,65).
 RUN unzip /tmp/codesys.package -d /tmp/codesys \
  && dpkg -i --force-depends \
       /tmp/codesys/Delivery/linuxarm64/codesyscontrol_linuxarm64_${CODESYS_VERSION}_arm64.deb \
+ && test -x /opt/codesys/bin/codesyscontrol.bin \
+ && test -f /etc/codesyscontrol/CODESYSControl.cfg \
+ && test -f /etc/codesyscontrol/CODESYSControl_User.cfg \
+ && grep -q '^Component\..*=CmpRetain' /etc/codesyscontrol/CODESYSControl_User.cfg \
  && rm -rf /tmp/codesys.package /tmp/codesys \
  && rm -rf /var/lib/apt/lists/*
 
 # Ports the runtime exposes. Bound on 0.0.0.0 inside the container; on the
 # Pi the Quadlet uses --network host so these become reachable on the host's
 # WG mesh IP and LAN IP.
-EXPOSE 1217/tcp 4840/tcp 8080/tcp
+EXPOSE 1217/tcp 4840/tcp 8080/tcp 11740/tcp
 
-# /etc/init.d/codesyscontrol is a SysV-style script that backgrounds the
-# real codesyscontrol process. We start it foreground-style by exec-ing tail
-# on the runtime log so the container stays alive and logs route to
-# `podman logs`.
-ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["set -e; \
-      /etc/init.d/codesyscontrol start; \
-      mkdir -p /var/log; \
-      touch /var/log/codesyscontrol.log; \
-      exec tail -F /var/log/codesyscontrol.log /var/opt/codesys/log/codesyscontrol.log 2>/dev/null"]
+# codesyscontrol.bin runs PID 1 directly. Path + cfg taken verbatim from
+# /etc/init.d/codesyscontrol:17,20,65 of the shipped .deb:
+#   EXEC=/opt/codesys/bin/codesyscontrol.bin
+#   WORKDIR=/var/opt/codesys
+#   CONFIGFILE=/etc/codesyscontrol/CODESYSControl.cfg
+#
+# The previous CMD did `/etc/init.d/codesyscontrol start` (which forks
+# codesyscontrol into the background) and then `exec tail -F ...` on
+# the log. That made `tail` the container's PID 1 — codesyscontrol
+# crashing did NOT take the container down. Same "Up with no runtime"
+# failure mode as cp02. With codesyscontrol as PID 1, a runtime crash
+# kills the container → Quadlet/systemd restart fires → reality.
+WORKDIR /var/opt/codesys
+ENTRYPOINT ["/opt/codesys/bin/codesyscontrol.bin", "/etc/codesyscontrol/CODESYSControl.cfg"]
