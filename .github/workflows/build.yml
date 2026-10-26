@@ -74,17 +74,12 @@ jobs:
                 pgrep -af codesyscontrol || true; \
                 /etc/init.d/codesyscontrol stop || true'
 
-      - name: Push image
-        if: steps.tag.outputs.push == 'true'
-        run: |
-          podman push "${{ steps.tag.outputs.image }}" \
-            "docker://${{ steps.tag.outputs.image }}"
-
       # A published version is never replaced by a different build of itself.
       # This asks the registry directly and FAILS CLOSED: only a definite 200
       # (published) or a definite 404 (free) lets the alias push go on. Anything
       # else stops the job rather than guessing "free". When the version is
-      # already published, neither :latest nor :${CODESYS_VERSION} is pushed.
+      # already published, nothing is pushed from main: not :main, not :latest
+      # and not :${CODESYS_VERSION}.
       - name: Check whether this version is already published
         id: guard
         if: steps.tag.outputs.push == 'true' && github.ref_name == 'main'
@@ -104,6 +99,12 @@ jobs:
             *)   echo "::error::registry answered ${CODE} for ${IMAGE_NAME}:${CODESYS_VERSION}; refusing to guess whether it is published"; exit 1 ;;
           esac
 
+      - name: Push image
+        if: steps.tag.outputs.push == 'true' && (github.ref_name != 'main' || steps.guard.outputs.published == 'false')
+        run: |
+          podman push "${{ steps.tag.outputs.image }}" \
+            "docker://${{ steps.tag.outputs.image }}"
+
       # On main pushes, also publish :latest and :${CODESYS_VERSION} so
       # appliances can pull a stable rolling reference and a pinned one.
       - name: Tag and push :latest + version (main only, never over a published version)
@@ -118,12 +119,14 @@ jobs:
 
       - name: Summary
         run: |
-          if [ "${{ steps.tag.outputs.push }}" = "true" ]; then
+          if [ "${{ steps.tag.outputs.push }}" != "true" ]; then
+            echo "Built and smoke-tested locally; no push (PR build)"
+          elif [ "${{ github.ref_name }}" = "main" ] && [ "${{ steps.guard.outputs.published }}" = "true" ]; then
+            echo "Built and smoke-tested; ${CODESYS_VERSION} is already published, nothing pushed"
+          else
             echo "Pushed: ${{ steps.tag.outputs.image }}"
             if [ "${{ github.ref_name }}" = "main" ]; then
               echo "Pushed: ${REGISTRY}/${IMAGE_NAME}:latest"
               echo "Pushed: ${REGISTRY}/${IMAGE_NAME}:${CODESYS_VERSION}"
             fi
-          else
-            echo "Built and smoke-tested locally; no push (PR build)"
           fi
