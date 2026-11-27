@@ -4,6 +4,8 @@ CODESYS Control SL runtime (PLC IEC 61131-3, ARM64) wrapped in a
 `debian:bookworm-slim` container for distro-agnostic deployment via
 Podman Quadlet on EmberNet edge appliances.
 
+Part of [EmberNet](https://embernet.ai), the complete industrial edge platform.
+
 ## What this gives you
 
 A self-contained PLC runtime container, deployed via Quadlet + systemd
