@@ -1,8 +1,9 @@
 # Embernet CODESYS Control for Linux ARM64 SL
 
-CODESYS Control SL runtime (PLC IEC 61131-3, ARM64) wrapped in a
-`debian:bookworm-slim` container for distro-agnostic deployment via
-Podman Quadlet on EmberNet edge appliances.
+Run a CODESYS Control SL PLC runtime (IEC 61131-3, ARM64) on a Raspberry Pi or any
+aarch64 Linux box as one container. It is a `debian:bookworm-slim` container
+deployed with Podman Quadlet, so it comes up the same way on every EmberNet edge
+appliance, whatever the distro underneath.
 
 Part of [EmberNet](https://embernet.ai), the complete industrial edge platform.
 
@@ -17,7 +18,7 @@ on a Raspberry Pi (or any aarch64 Linux), exposing:
 | 4840 | OPC UA server |
 | 8080 | Web visualization / HMI |
 
-Demo mode is automatic — the runtime cycles every 30 minutes until you
+Demo mode is automatic. The runtime cycles every 30 minutes until you
 provision a CodeMeter license. No CodeMeter sidecar in the base image
 yet; add it as a follow-up when licensing is needed.
 
@@ -25,7 +26,7 @@ yet; add it as a follow-up when licensing is needed.
 
 The upstream CODESYS Control SL distribution is a CODESYS `.package`
 (ZIP) wrapping a Debian `.deb`. Installing the `.deb` directly on
-openSUSE MicroOS (or any RPM-based host) is non-viable — and the .deb's
+openSUSE MicroOS (or any RPM-based host) is non-viable, and the .deb's
 own `postinst` script has a documented container short-circuit (it
 skips host-daemon registration when it sees `$CONTAINER=true` or
 `/.dockerenv`), confirming that container deployment is the supported
@@ -106,7 +107,7 @@ ForgeNET network controller:
 | Locked memory | unlimited | Quadlet `[Service]` `LimitMEMLOCK=infinity` |
 
 `LimitRTPRIO` + `LimitMEMLOCK` let the runtime use `SCHED_FIFO` and
-`mlock()` for predictable scan-cycle timing — the practical bridge
+`mlock()` for predictable scan-cycle timing, the practical bridge
 between containerization and soft-real-time PLC behavior.
 
 Override on a beefier appliance via:
@@ -127,7 +128,7 @@ sudo systemctl restart embernet-codesys.service
 
 The base image installs the `.deb` with `--force-depends`, skipping the
 `codemeter | codemeter-lite` dependency. Without CodeMeter the runtime
-operates in 30-minute demo cycles — ideal for unlicensed bring-up.
+operates in 30-minute demo cycles, which is ideal for unlicensed bring-up.
 
 To enable real licensing:
 
@@ -141,7 +142,7 @@ To enable real licensing:
 ## CI
 
 - **Trigger**: push to `main` or `develop`, plus PRs against `main`.
-- **Build**: `podman build --platform linux/arm64` (ARM64-only — this
+- **Build**: `podman build --platform linux/arm64` (ARM64-only, because this
   runtime is ARM64-only).
 - **Push**: on push events to main/develop, manifest pushed to
   `ghcr.io/embernet-ai/codesys-linux-arm-64:<branch>`. On main pushes,
